@@ -1294,7 +1294,6 @@ _mesa_float_fma_rtz(float a, float b, float c)
         e--;
         m_64 <<= 1;
     }
-    uint32_t potentially_s = s;
 
     if (c_flt_e == 0) {
         if (c_flt_m == 0) {
@@ -1306,58 +1305,51 @@ _mesa_float_fma_rtz(float a, float b, float c)
     }
     c_flt_m = (c_flt_m | 0x00800000) << 6;
 
-    uint32_t potentially_m;
-    uint32_t potentially_e;
-    uint64_t potentially_m_64;
     int16_t exp_diff = e - c_flt_e;
     if (s == c_flt_s) {
         if (exp_diff <= 0) {
-            potentially_e = c_flt_e;
-            potentially_m = c_flt_m + _mesa_shift_right_jam64(m_64, 32 - exp_diff);
+            e = c_flt_e;
+            m = c_flt_m + _mesa_shift_right_jam64(m_64, 32 - exp_diff);
         } else {
-            potentially_e = e;
-            potentially_m_64 = m_64 + _mesa_shift_right_jam64((uint64_t) c_flt_m << 32, exp_diff);
-            potentially_m = _mesa_short_shift_right_jam64(potentially_m_64, 32);
+            m_64 += _mesa_shift_right_jam64((uint64_t) c_flt_m << 32, exp_diff);
+            m = _mesa_short_shift_right_jam64(m_64, 32);
         }
-        if (potentially_m < 0x40000000) {
-            potentially_e--;
-            potentially_m <<= 1;
+        if (m < 0x40000000) {
+            e--;
+            m <<= 1;
         }
     } else {
         uint64_t c_flt_m_64 = (uint64_t) c_flt_m << 32;
         if (exp_diff < 0) {
-            potentially_s = c_flt_s;
-            potentially_e = c_flt_e;
-            potentially_m_64 = c_flt_m_64 - _mesa_shift_right_jam64(m_64, -exp_diff);
+            s = c_flt_s;
+            e = c_flt_e;
+            m_64 = c_flt_m_64 - _mesa_shift_right_jam64(m_64, -exp_diff);
         } else if (!exp_diff) {
-            potentially_e = e;
-            potentially_m_64 = m_64 - c_flt_m_64;
-            if (!potentially_m_64) {
+            m_64 -= c_flt_m_64;
+            if (!m_64) {
                 /* Return zero */
                 fi_type result;
-                result.u = (potentially_s << 31) + 0;
+                result.u = (s << 31) + 0;
                 return result.f;
             }
-            if (potentially_m_64 & 0x8000000000000000) {
-                // Woho!
-                potentially_s = !potentially_s;
-                potentially_m_64 = -potentially_m_64;
+            if (m_64 & 0x8000000000000000) {
+                s = !s;
+                m_64 = -m_64;
             }
         } else {
-            potentially_e = e;
-            potentially_m_64 = m_64 - _mesa_shift_right_jam64(c_flt_m_64, exp_diff);
+            m_64 -= _mesa_shift_right_jam64(c_flt_m_64, exp_diff);
         }
-        int8_t shift_dist = _mesa_count_leading_zeros64(potentially_m_64) - 1;
-        potentially_e -= shift_dist;
+        int8_t shift_dist = _mesa_count_leading_zeros64(m_64) - 1;
+        e -= shift_dist;
         shift_dist -= 32;
         if (shift_dist < 0) {
-            potentially_m = _mesa_short_shift_right_jam64(potentially_m_64, -shift_dist);
+            m = _mesa_short_shift_right_jam64(m_64, -shift_dist);
         } else {
-            potentially_m = (uint32_t) potentially_m_64 << shift_dist;
+            m = (uint32_t) m_64 << shift_dist;
         }
     }
 
-    return _mesa_roundtozero_f32(potentially_s, potentially_e, potentially_m);
+    return _mesa_roundtozero_f32(s, e, m);
 }
 
 /**
