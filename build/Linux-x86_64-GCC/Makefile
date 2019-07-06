@@ -39,7 +39,7 @@ SOURCE_DIR ?= ../../source
 SOFTFLOAT_DIR ?= ../../../berkeley-softfloat-3
 PLATFORM ?= Linux-x86_64-GCC
 
-SUBJ_SOURCE_DIR = $(SOURCE_DIR)/subj-C
+SUBJ_SOURCE_DIR = $(SOURCE_DIR)/subj-Mesa
 SOFTFLOAT_INCLUDE_DIR = $(SOFTFLOAT_DIR)/source/include
 
 SOFTFLOAT_H = \
@@ -56,10 +56,10 @@ C_INCLUDES = \
   -I. -I$(SUBJ_SOURCE_DIR) -I$(SOURCE_DIR) -I$(SOFTFLOAT_INCLUDE_DIR)
 COMPILE_C = \
   gcc -c -Werror-implicit-function-declaration $(TESTFLOAT_OPTS) \
-    $(C_INCLUDES) -O2 -o $@
+    $(C_INCLUDES) -O0 -ggdb -o $@
 COMPILE_SLOWFLOAT_C = \
   gcc -c -Werror-implicit-function-declaration $(TESTFLOAT_OPTS) \
-    $(C_INCLUDES) -O3 -o $@
+    $(C_INCLUDES) -O0 -ggdb -o $@
 MAKELIB = ar crs $@
 LINK = gcc -o $@
 OTHER_LIBS = -lm

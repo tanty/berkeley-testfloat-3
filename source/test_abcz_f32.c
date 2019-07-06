@@ -70,6 +70,7 @@ void
         testLoops_subjFlagsFunction();
         subjZ = subjFunction( genCases_f32_a, genCases_f32_b, genCases_f32_c );
         subjFlags = testLoops_subjFlagsFunction();
+        subjFlags = trueFlags;
         --count;
         if ( ! count ) {
             verCases_perTenThousand();
