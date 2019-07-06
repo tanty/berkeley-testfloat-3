@@ -1227,6 +1227,48 @@ _mesa_float_fma_rtz(float a, float b, float c)
         return result.f;
     }
 
+    if (b_flt_e == 0xff) {
+        if (b_flt_m != 0) {
+            /* 'b' is a NaN, return NaN */
+            return b;
+        } else if (c_flt_e == 0xff && c_flt_m != 0) {
+            /* 'c' is a NaN, return NaN */
+            return c;
+        }
+
+        if (!(a_flt_e | a_flt_m)) {
+            /* 0 * Inf + y = NaN */
+            fi_type result;
+            e = 0xff;
+            result.u = (s << 31) + (e << 23) + 0x1;
+            return result.f;
+        }
+
+        if ((c_flt_e == 0xff && c_flt_m == 0) && (s != c_flt_s)) {
+            /* x * Inf - Inf = NaN */
+            fi_type result;
+            e = 0xff;
+            result.u = (s << 31) + (e << 23) + 0x1;
+            return result.f;
+        }
+
+        /* x * Inf + y = Inf */
+        fi_type result;
+        e = 0xff;
+        result.u = (s << 31) + (e << 23) + 0;
+        return result.f;
+    }
+
+    if (c_flt_e == 0xff) {
+        if (c_flt_m != 0) {
+            /* 'c' is a NaN, return NaN */
+            return c;
+        }
+
+        /* x * y + Inf = Inf */
+        return c;
+    }
+
     if (a_flt_e == 0) {
         if (a_flt_m == 0) {
             /* 'a' is zero, return 'c' */
