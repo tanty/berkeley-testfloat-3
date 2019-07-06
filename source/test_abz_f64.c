@@ -72,26 +72,13 @@ void
         testLoops_subjFlagsFunction();
         subjZ = subjFunction( genCases_f64_a, genCases_f64_b );
         subjFlags = testLoops_subjFlagsFunction();
-        subjFlags = trueFlags;
+        /* subjFlags = trueFlags; */
         --count;
         if ( ! count ) {
             verCases_perTenThousand();
             count = 10000;
         }
-        if ( ! f64_same( trueZ, subjZ ) || (trueFlags != subjFlags) ) {
-            if (
-                ! verCases_checkNaNs
-                    && (f64_isSignalingNaN( genCases_f64_a )
-                            || f64_isSignalingNaN( genCases_f64_b ))
-            ) {
-                trueFlags |= softfloat_flag_invalid;
-            }
-            if (
-                   verCases_checkNaNs
-                || ! f64_isNaN( trueZ )
-                || ! f64_isNaN( subjZ )
-                || f64_isSignalingNaN( subjZ )
-                || (trueFlags != subjFlags)
+        if ( ! f64_same( trueZ, subjZ ) && ! ( f64_isNaN( trueZ ) && f64_isNaN( subjZ )) && ! ( f64_isZero( trueZ ) && f64_isZero( subjZ ))
             ) {
                 ++verCases_errorCount;
                 verCases_writeErrorFound( 10000 - count );
@@ -99,7 +86,6 @@ void
                 writeCase_z_f64( trueZ, trueFlags, subjZ, subjFlags );
                 if ( verCases_errorCount == verCases_maxErrorCount ) break;
             }
-        }
     }
     verCases_writeTestsPerformed( 10000 - count );
 

@@ -101,6 +101,13 @@ INLINE bool f32_isNaN( float32_t a )
     return 0x7F800000 < (uA.ui & 0x7FFFFFFF);
 }
 
+INLINE bool f32_isZero( float32_t a )
+{
+    union { uint32_t ui; float32_t f; } uA;
+    uA.f = a;
+    return (( uA.ui == 0x80000000 ) || ( uA.ui == 0x00000000 ));
+}
+
 #ifdef FLOAT64
 
 INLINE bool f64_same( float64_t a, float64_t b )
@@ -118,6 +125,13 @@ INLINE bool f64_isNaN( float64_t a )
     return
         UINT64_C( 0x7FF0000000000000 )
             < (uA.ui & UINT64_C( 0x7FFFFFFFFFFFFFFF ));
+}
+
+INLINE bool f64_isZero( float64_t a )
+{
+    union { uint64_t ui; float64_t f; } uA;
+    uA.f = a;
+    return (( uA.ui == UINT64_C( 0x8000000000000000 ) ) || ( uA.ui == UINT64_C( 0x0000000000000000 )));
 }
 
 #endif
