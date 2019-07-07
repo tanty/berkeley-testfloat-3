@@ -772,7 +772,7 @@ _mesa_double_sub_rtz(double a, double b)
 static inline void
 _mesa_norm_subnormal_mantissa_f64(uint64_t m, uint64_t *exp, uint64_t *m_out)
 {
-    unsigned shift_dist;
+    int shift_dist;
 
     shift_dist = _mesa_count_leading_zeros64(m) - 11;
     *exp = 1 - shift_dist;
@@ -782,7 +782,7 @@ _mesa_norm_subnormal_mantissa_f64(uint64_t m, uint64_t *exp, uint64_t *m_out)
 static inline void
 _mesa_norm_subnormal_mantissa_f32(uint32_t m, uint32_t *exp, uint32_t *m_out)
 {
-    unsigned shift_dist;
+    int shift_dist;
 
     shift_dist = _mesa_count_leading_zeros32(m) - 8;
     *exp = 1 - shift_dist;
@@ -888,7 +888,7 @@ _mesa_double_mul_rtz(double a, double b)
             result.u = (s << 63) + 0;
             return result.f;
         }
-        _mesa_norm_subnormal_mantissa_f64( a_flt_m , &a_flt_e, &a_flt_m);
+        _mesa_norm_subnormal_mantissa_f64(a_flt_m , &a_flt_e, &a_flt_m);
     }
     if (b_flt_e == 0) {
         if (b_flt_m == 0) {
@@ -897,10 +897,10 @@ _mesa_double_mul_rtz(double a, double b)
             result.u = (s << 63) + 0;
             return result.f;
         }
-        _mesa_norm_subnormal_mantissa_f64( b_flt_m , &b_flt_e, &b_flt_m);
+        _mesa_norm_subnormal_mantissa_f64(b_flt_m , &b_flt_e, &b_flt_m);
     }
 
-    e = a_flt_e + b_flt_e - 0x3FF;
+    e = a_flt_e + b_flt_e - 0x3ff;
     a_flt_m = (a_flt_m | 0x0010000000000000) << 10;
     b_flt_m = (b_flt_m | 0x0010000000000000) << 11;
 
@@ -915,6 +915,7 @@ _mesa_double_mul_rtz(double a, double b)
         e--;
         m <<= 1;
     }
+
     return _mesa_roundtozero_f64(s, e, m);
 }
 
