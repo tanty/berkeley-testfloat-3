@@ -296,7 +296,7 @@ _mesa_short_shift_left_m(uint8_t size_words, const uint32_t *a, uint8_t dist, ui
  * From softfloat_shiftLeftM()
  */
 static inline void
-_mesa_shift_left_m(uint8_t size_words, const uint32_t *a, uint8_t dist, uint32_t *m_out)
+_mesa_shift_left_m(uint8_t size_words, const uint32_t *a, uint32_t dist, uint32_t *m_out)
 {
     uint32_t word_dist;
     uint8_t inner_dist;
@@ -388,7 +388,7 @@ _mesa_short_shift_right_jam_m(uint8_t size_words, const uint32_t *a, uint8_t dis
         part_word |= 1;
     while (index != last_index) {
         a_word = a[index + word_incr];
-        m_out[index] = a_word << (neg_dist & 63) | part_word;
+        m_out[index] = a_word << (neg_dist & 31) | part_word;
         index += word_incr;
         part_word = a_word >> dist;
     }
@@ -410,7 +410,7 @@ _mesa_short_shift_right_jam_m(uint8_t size_words, const uint32_t *a, uint8_t dis
  * From softfloat_shiftRightJamM()
  */
 static inline void
-_mesa_shift_right_jam_m(uint8_t size_words, const uint32_t *a, uint8_t dist, uint32_t *m_out)
+_mesa_shift_right_jam_m(uint8_t size_words, const uint32_t *a, uint32_t dist, uint32_t *m_out)
 {
     uint32_t word_jam, word_dist, *tmp;
     uint8_t i, inner_dist;
@@ -1046,7 +1046,7 @@ _mesa_double_fma_rtz(double a, double b, double c)
 
     m = (uint64_t) m_128[index_word(4, 3)] << 32 | m_128[index_word(4, 2)];
 
-    uint64_t shift_dist = 0;
+    int64_t shift_dist = 0;
     if (!(m & 0x4000000000000000)) {
         e--;
         shift_dist = -1;
@@ -1067,7 +1067,7 @@ _mesa_double_fma_rtz(double a, double b, double c)
     c_flt_m = (c_flt_m | 0x0010000000000000) << 10;
 
     uint32_t c_flt_m_128[4];
-    uint64_t exp_diff = e - c_flt_e;
+    int64_t exp_diff = e - c_flt_e;
     if (exp_diff < 0) {
         e = c_flt_e;
         if ((s == c_flt_s) || (exp_diff < -1)) {
