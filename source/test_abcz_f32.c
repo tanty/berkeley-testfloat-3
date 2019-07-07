@@ -36,6 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 =============================================================================*/
 
 #include <stdint.h>
+#include <assert.h>
 #include "platform.h"
 #include "softfloat.h"
 #include "genCases.h"
@@ -78,6 +79,9 @@ void
         }
         if ( ! f32_same( trueZ, subjZ ) && ! ( f32_isNaN( trueZ ) && f32_isNaN( subjZ )) && ! ( f32_isZero( trueZ ) && f32_isZero( subjZ ))
             ) {
+            /* assert ( f32_isNaN ( subjZ ) ); */
+            trueZ = trueFunction( genCases_f32_a, genCases_f32_b, genCases_f32_c );
+            subjZ = subjFunction( genCases_f32_a, genCases_f32_b, genCases_f32_c );
                 ++verCases_errorCount;
                 verCases_writeErrorFound( 10000 - count );
                 writeCase_abc_f32(

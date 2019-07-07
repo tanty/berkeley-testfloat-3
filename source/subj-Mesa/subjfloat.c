@@ -1427,6 +1427,7 @@ float32_t subj_f32_mulAdd( float32_t a, float32_t b, float32_t c )
     uB.f32 = b;
     uC.f32 = c;
     uZ.f = _mesa_float_fma_rtz(uA.f, uB.f, uC.f);
+    /* uZ.f = _mesa_double_add_rtz(_mesa_double_mul_rtz(uA.f, uB.f), uC.f); */
     return uZ.f32;
 
 }
