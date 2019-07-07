@@ -483,7 +483,9 @@ _mesa_double_add_rtz(double a, double b)
 
     /* Handle special cases */
 
-    if ((a_flt_e == 0) && (a_flt_m == 0)) {
+    if (a_flt_s != b_flt_s) {
+        return _mesa_double_sub_rtz(a, -b);
+    } else if ((a_flt_e == 0) && (a_flt_m == 0)) {
         /* 'a' is zero, return 'b' */
         return b;
     } else if ((b_flt_e == 0) && (b_flt_m == 0)) {
@@ -496,17 +498,15 @@ _mesa_double_add_rtz(double a, double b)
         /* 'b' is a NaN, return NaN */
         return b;
     } else if (a_flt_e == 0x7ff && a_flt_m == 0) {
-        /* 'a' is infinity, return infinity */
+        /* Inf + x = Inf */
         return a;
     } else if (b_flt_e == 0x7ff && b_flt_m == 0) {
-        /* 'b' is infinity, return infinity */
+        /* x + Inf = Inf */
         return b;
-    } else if (a_flt_s != b_flt_s) {
-        return _mesa_double_sub_rtz(a, -b);
     } else if (exp_diff == 0 && a_flt_e == 0) {
-        uint64_t tmp = a_di.u + b_flt_m;
-        m = tmp & 0x0fffffffffffff;
-        e = (tmp >> 52) & 0x7ff;
+        di_type result_di;
+        result_di.u = a_di.u + b_flt_m;
+        return result_di.f;
     } else if (exp_diff == 0) {
         e = a_flt_e;
         m = 0x0020000000000000 + a_flt_m + b_flt_m;
@@ -517,7 +517,7 @@ _mesa_double_add_rtz(double a, double b)
         e = b_flt_e;
 
         if (a_flt_e != 0)
-            a_flt_m += 0x0020000000000000;
+            a_flt_m += 0x2000000000000000;
         else
             a_flt_m <<= 1;
 
@@ -532,12 +532,12 @@ _mesa_double_add_rtz(double a, double b)
         b_flt_m <<= 9;
         e = a_flt_e;
 
-        if (a_flt_e != 0)
-            b_flt_m += 0x0020000000000000;
+        if (b_flt_e != 0)
+            b_flt_m += 0x2000000000000000;
         else
             b_flt_m <<= 1;
 
-        b_flt_m = _mesa_shift_right_jam64(b_flt_m, -exp_diff);
+        b_flt_m = _mesa_shift_right_jam64(b_flt_m, exp_diff);
         m = 0x2000000000000000 + a_flt_m + b_flt_m;
         if (m < 0x4000000000000000) {
             --e;
@@ -578,7 +578,7 @@ _mesa_norm_round_pack_f64(int64_t s, int64_t e, int64_t m)
         result.u = (s << 63) + ((m ? e : 0) << 52) + (m << (shift_dist - 10));
         return result.f;
     } else {
-        return _mesa_roundtozero_f64(s, e, m);
+        return _mesa_roundtozero_f64(s, e, m << shift_dist);
     }
 }
 
@@ -696,7 +696,9 @@ _mesa_double_sub_rtz(double a, double b)
 
     /* Handle special cases */
 
-    if ((a_flt_e == 0) && (a_flt_m == 0)) {
+    if (a_flt_s != b_flt_s) {
+        return _mesa_double_add_rtz(a, -b);
+    } else if ((a_flt_e == 0) && (a_flt_m == 0)) {
         /* 'a' is zero, return '-b' */
         return -b;
     } else if ((b_flt_e == 0) && (b_flt_m == 0)) {
@@ -709,17 +711,18 @@ _mesa_double_sub_rtz(double a, double b)
         /* 'b' is a NaN, return NaN */
         return b;
     } else if (a_flt_e == 0x7ff && a_flt_m == 0) {
-        /* 'a' is infinity, return infinity */
+        if (b_flt_e == 0x7ff && b_flt_m == 0) {
+            /* Inf - Inf =  NaN */
+            di_type result;
+            e = 0x7ff;
+            result.u = (s << 63) + (e << 52) + 0x1;
+            return result.f;
+        }
+        /* Inf - x = Inf */
         return a;
     } else if (b_flt_e == 0x7ff && b_flt_m == 0) {
-        /* 'b' is infinity, return -infinity */
+        /* x - Inf = -Inf */
         return -b;
-    } else if (a_flt_s != b_flt_s) {
-        return _mesa_double_add_rtz(a, -b);
-    } else if (exp_diff == 0 && a_flt_e == 0) {
-        uint64_t tmp = a_di.u + b_flt_m;
-        m = tmp & 0x0fffffffffffff;
-        e = (tmp >> 52) & 0x7ff;
     } else if (exp_diff == 0) {
         m_diff = a_flt_m - b_flt_m;
 
@@ -734,7 +737,14 @@ _mesa_double_sub_rtz(double a, double b)
 
         shift_dist = _mesa_count_leading_zeros64(m_diff) - 11;
         e = a_flt_e - shift_dist;
-        return _mesa_roundtozero_f64(s, e, m_diff << shift_dist);
+        if (e < 0) {
+            shift_dist = a_flt_e;
+            e = 0;
+        }
+
+        di_type result;
+        result.u = (s << 63) + (e << 52) + (m_diff << shift_dist);
+        return result.f;
     } else if (exp_diff < 0) {
         a_flt_m <<= 10;
         b_flt_m <<= 10;
@@ -750,7 +760,7 @@ _mesa_double_sub_rtz(double a, double b)
         b_flt_m <<= 10;
 
         b_flt_m += (b_flt_e) ? 0x4000000000000000 : b_flt_m;
-        b_flt_m = _mesa_shift_right_jam64(b_flt_m, -exp_diff);
+        b_flt_m = _mesa_shift_right_jam64(b_flt_m, exp_diff);
         a_flt_m |= 0x4000000000000000;
         e = a_flt_e;
         m = a_flt_m - b_flt_m;
