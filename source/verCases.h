@@ -84,6 +84,13 @@ INLINE bool f16_isNaN( float16_t a )
     return 0x7C00 < (uA.ui & 0x7FFF);
 }
 
+INLINE bool f16_isZero( float16_t a )
+{
+    union { uint16_t ui; float16_t f; } uA;
+    uA.f = a;
+    return (( uA.ui == 0x80000 ) || ( uA.ui == 0x00000 ));
+}
+
 #endif
 
 INLINE bool f32_same( float32_t a, float32_t b )

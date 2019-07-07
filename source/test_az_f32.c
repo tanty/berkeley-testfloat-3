@@ -73,18 +73,7 @@ void
             verCases_perTenThousand();
             count = 10000;
         }
-        if ( ! f32_same( trueZ, subjZ ) || (trueFlags != subjFlags) ) {
-            if (
-                ! verCases_checkNaNs && f32_isSignalingNaN( genCases_f32_a )
-            ) {
-                trueFlags |= softfloat_flag_invalid;
-            }
-            if (
-                   verCases_checkNaNs
-                || ! f32_isNaN( trueZ )
-                || ! f32_isNaN( subjZ )
-                || f32_isSignalingNaN( subjZ )
-                || (trueFlags != subjFlags)
+        if ( ! f32_same( trueZ, subjZ ) && ! ( f32_isNaN( trueZ ) && f32_isNaN( subjZ )) && ! ( f32_isZero( trueZ ) && f32_isZero( subjZ ))
             ) {
                 ++verCases_errorCount;
                 verCases_writeErrorFound( 10000 - count );
@@ -92,7 +81,6 @@ void
                 writeCase_z_f32( trueZ, trueFlags, subjZ, subjFlags );
                 if ( verCases_errorCount == verCases_maxErrorCount ) break;
             }
-        }
     }
     verCases_writeTestsPerformed( 10000 - count );
 
