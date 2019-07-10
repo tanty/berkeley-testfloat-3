@@ -36,6 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 =============================================================================*/
 
 #include <stdint.h>
+#include <assert.h>
 #include "platform.h"
 #include "softfloat.h"
 #include "genCases.h"
@@ -75,28 +76,17 @@ void
             verCases_perTenThousand();
             count = 10000;
         }
-        if ( ! f32_same( trueZ, subjZ ) || (trueFlags != subjFlags) ) {
-            if (
-                ! verCases_checkNaNs
-                    && (f32_isSignalingNaN( genCases_f32_a )
-                            || f32_isSignalingNaN( genCases_f32_b ))
+        if ( ! f32_same( trueZ, subjZ ) && ! ( f32_isNaN( trueZ ) && f32_isNaN( subjZ )) && ! ( f32_isZero( trueZ ) && f32_isZero( subjZ ))
             ) {
-                trueFlags |= softfloat_flag_invalid;
-            }
-            if (
-                   verCases_checkNaNs
-                || ! f32_isNaN( trueZ )
-                || ! f32_isNaN( subjZ )
-                || f32_isSignalingNaN( subjZ )
-                || (trueFlags != subjFlags)
-            ) {
+            /* assert ( f32_isNaN ( subjZ ) ); */
+        trueZ = trueFunction( genCases_f32_a, genCases_f32_b );
+        subjZ = subjFunction( genCases_f32_a, genCases_f32_b );
                 ++verCases_errorCount;
                 verCases_writeErrorFound( 10000 - count );
                 writeCase_ab_f32( genCases_f32_a, genCases_f32_b );
                 writeCase_z_f32( trueZ, trueFlags, subjZ, subjFlags );
                 if ( verCases_errorCount == verCases_maxErrorCount ) break;
             }
-        }
     }
     verCases_writeTestsPerformed( 10000 - count );
 
