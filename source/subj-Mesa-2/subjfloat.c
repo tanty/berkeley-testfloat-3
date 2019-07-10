@@ -108,6 +108,78 @@ util_last_bit64(uint64_t u)
 /*----------------------------------------------------------------------------
 *----------------------------------------------------------------------------*/
 
+
+double _mesa_double_add_rtz(double a, double b);
+double _mesa_double_sub_rtz(double a, double b);
+double _mesa_double_mul_rtz(double a, double b);
+double _mesa_double_fma_rtz(double a, double b, double c);
+float _mesa_float_fma_rtz(float a, float b, float c);
+float _mesa_double_to_f32(double x, bool rtz);
+uint16_t _mesa_float_to_half_rtz(float x);
+typedef union { float f; int32_t i; uint32_t u; } fi_type;
+
+
+/*----------------------------------------------------------------------------
+*----------------------------------------------------------------------------*/
+
+/**
+ * Convert a 2-byte half float to a 4-byte float.
+ * Based on code from:
+ * http://www.opengl.org/discussion_boards/ubb/Forum3/HTML/008786.html
+ */
+float
+_mesa_half_to_float(uint16_t val)
+{
+   /* XXX could also use a 64K-entry lookup table */
+   const int m = val & 0x3ff;
+   const int e = (val >> 10) & 0x1f;
+   const int s = (val >> 15) & 0x1;
+   int flt_m, flt_e, flt_s;
+   fi_type fi;
+   float result;
+
+   /* sign bit */
+   flt_s = s;
+
+   /* handle special cases */
+   if ((e == 0) && (m == 0)) {
+      /* zero */
+      flt_m = 0;
+      flt_e = 0;
+   }
+   else if ((e == 0) && (m != 0)) {
+      /* denorm -- denorm half will fit in non-denorm single */
+      const float half_denorm = 1.0f / 16384.0f; /* 2^-14 */
+      float mantissa = ((float) (m)) / 1024.0f;
+      float sign = s ? -1.0f : 1.0f;
+      return sign * mantissa * half_denorm;
+   }
+   else if ((e == 31) && (m == 0)) {
+      /* infinity */
+      flt_e = 0xff;
+      flt_m = 0;
+   }
+   else if ((e == 31) && (m != 0)) {
+      /* NaN */
+      flt_e = 0xff;
+      flt_m = 1;
+   }
+   else {
+      /* regular */
+      flt_e = e + 112;
+      flt_m = m << 13;
+   }
+
+   fi.i = (flt_s << 31) | (flt_e << 23) | flt_m;
+   result = fi.f;
+   return result;
+}
+
+
+/*----------------------------------------------------------------------------
+*----------------------------------------------------------------------------*/
+
+
 #if defined(BIG_ENDIAN)
 #define word_incr -1
 #define index_word(total, n) ((total) - 1 - (n))
@@ -129,7 +201,7 @@ util_last_bit64(uint64_t u)
 #endif
 
 typedef union { double f; int64_t i; uint64_t u; } di_type;
-typedef union { float f; int32_t i; uint32_t u; } fi_type;
+/* typedef union { float f; int32_t i; uint32_t u; } fi_type; */
 
 const uint8_t count_leading_zeros8[256] = {
     8, 7, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -149,420 +221,6 @@ const uint8_t count_leading_zeros8[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
-
-long _mesa_lroundtozero(double x);
-long _mesa_lroundtozerof(float x);
-uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m);
-
-/**
- * \brief Rounds \c x to the nearest integer, with ties to the even integer,
- * and returns the value as a long int.
- */
-static inline long
-_mesa_lroundevenf(float x)
-{
-#if defined(__SSE__) || defined(_MSC_VER)
-/* #if LONG_MAX == INT64_MAX */
-   return _mm_cvtss_si64(_mm_load_ss(&x));
-/* #elif LONG_MAX == INT32_MAX */
-/*    return _mm_cvtss_si32(_mm_load_ss(&x)); */
-/* #else */
-/* #error "Unsupported long size" */
-/* #endif */
-#else
-   return lrintf(x);
-#endif
-}
-
-/**
- * \brief Rounds \c x to the nearest integer, with ties to the even integer,
- * and returns the value as a long int.
- */
-static inline long
-_mesa_lroundeven(double x)
-{
-#if defined(__SSE__) || defined(_MSC_VER)
-/* #if LONG_MAX == INT64_MAX */
-   return _mm_cvtsd_si64(_mm_load_sd(&x));
-/* #elif LONG_MAX == INT32_MAX */
-/*    return _mm_cvtsd_si32(_mm_load_sd(&x)); */
-/* #else */
-/* #error "Unsupported long size" */
-/* #endif */
-#else
-   return lrint(x);
-#endif
-}
-
-/**
- * Convert a 4-byte float to a 2-byte half float.
- *
- * Not all float32 values can be represented exactly as a float16 value. We
- * round such intermediate float32 values to the nearest float16. When the
- * float32 lies exactly between to float16 values, we round to the one with
- * an even mantissa.
- *
- * This rounding behavior has several benefits:
- *   - It has no sign bias.
- *
- *   - It reproduces the behavior of real hardware: opcode F32TO16 in Intel's
- *     GPU ISA.
- *
- *   - By reproducing the behavior of the GPU (at least on Intel hardware),
- *     compile-time evaluation of constant packHalf2x16 GLSL expressions will
- *     result in the same value as if the expression were executed on the GPU.
- */
-uint16_t
-_mesa_float_to_half(float val)
-{
-   const fi_type fi = {val};
-   const int flt_m = fi.i & 0x7fffff;
-   const int flt_e = (fi.i >> 23) & 0xff;
-   const int flt_s = (fi.i >> 31) & 0x1;
-   int s, e, m = 0;
-   uint16_t result;
-
-   /* sign bit */
-   s = flt_s;
-
-   /* handle special cases */
-   if ((flt_e == 0) && (flt_m == 0)) {
-      /* zero */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0) && (flt_m != 0)) {
-      /* denorm -- denorm float maps to 0 half */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0xff) && (flt_m == 0)) {
-      /* infinity */
-      /* m = 0; - already set */
-      e = 31;
-   }
-   else if ((flt_e == 0xff) && (flt_m != 0)) {
-      /* NaN */
-      m = 1;
-      e = 31;
-   }
-   else {
-      /* regular number */
-      const int new_exp = flt_e - 127;
-      if (new_exp < -14) {
-         /* The float32 lies in the range (0.0, min_normal16) and is rounded
-          * to a nearby float16 value. The result will be either zero, subnormal,
-          * or normal.
-          */
-         e = 0;
-         m = _mesa_lroundevenf((1 << 24) * fabsf(fi.f));
-      }
-      else if (new_exp > 15) {
-         /* map this value to infinity */
-         /* m = 0; - already set */
-         e = 31;
-      }
-      else {
-         /* The float32 lies in the range
-          *   [min_normal16, max_normal16 + max_step16)
-          * and is rounded to a nearby float16 value. The result will be
-          * either normal or infinite.
-          */
-         e = new_exp + 15;
-         m = _mesa_lroundevenf(flt_m / (float) (1 << 13));
-      }
-   }
-
-   /* assert(0 <= m && m <= 1024); */
-   if (m == 1024) {
-      /* The float32 was rounded upwards into the range of the next exponent,
-       * so bump the exponent. This correctly handles the case where f32
-       * should be rounded up to float16 infinity.
-       */
-      ++e;
-      m = 0;
-   }
-
-   result = (s << 15) | (e << 10) | m;
-   return result;
-}
-
-uint16_t
-_mesa_float_to_float16_rtz(float val)
-{
-   const fi_type fi = {val};
-   const int flt_m = fi.i & 0x7fffff;
-   const int flt_e = (fi.i >> 23) & 0xff;
-   const int flt_s = (fi.i >> 31) & 0x1;
-   int s, e, m = 0;
-   uint16_t result;
-
-   /* sign bit */
-   s = flt_s;
-
-   /* handle special cases */
-   if ((flt_e == 0) && (flt_m == 0)) {
-      /* zero */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0) && (flt_m != 0)) {
-      /* denorm -- denorm float maps to 0 half */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0xff) && (flt_m == 0)) {
-      /* infinity */
-      /* m = 0; - already set */
-      e = 31;
-   }
-   else if ((flt_e == 0xff) && (flt_m != 0)) {
-      /* NaN */
-      m = 1;
-      e = 31;
-   }
-   else {
-      /* regular number */
-      const int new_exp = flt_e - 127;
-      if (new_exp < -14) {
-         /* The float32 lies in the range (0.0, min_normal16) and is rounded
-          * to a nearby float16 value. The result will be either zero, subnormal,
-          * or normal.
-          */
-         e = 0;
-         m = _mesa_lroundtozerof((1 << 24) * fabsf(fi.f));
-      }
-      else if (new_exp > 15) {
-         /* map this value to infinity */
-         /* m = 0; - already set */
-         e = 31;
-      }
-      else {
-         /* The float32 lies in the range
-          *   [min_normal16, max_normal16 + max_step16)
-          * and is rounded to a nearby float16 value. The result will be
-          * either normal or infinite.
-          */
-         e = new_exp + 15;
-         m = _mesa_lroundtozerof(flt_m / (float) (1 << 13));
-      }
-   }
-
-   /* assert(0 <= m && m <= 1024); */
-   if (m == 1024) {
-      /* The float32 was rounded upwards into the range of the next exponent,
-       * so bump the exponent. This correctly handles the case where f32
-       * should be rounded up to float16 infinity.
-       */
-      ++e;
-      m = 0;
-   }
-
-   result = (s << 15) | (e << 10) | m;
-   return result;
-}
-
-uint16_t
-_mesa_float_to_half_rtz(float val)
-{
-    const fi_type fi = {val};
-    const uint32_t flt_m = fi.u & 0x7fffff;
-    const uint32_t flt_e = (fi.u >> 23) & 0xff;
-    const uint32_t flt_s = (fi.u >> 31) & 0x1;
-    int16_t s, e, m = 0;
-
-    s = flt_s;
-
-    if (flt_e == 0xff) {
-        if (flt_m != 0) {
-            /* 'val' is a NaN, return NaN */
-            e = 0x1f;
-            m = 0x1;
-            return (s << 15) + (e << 10) + m;
-        }
-
-        /* 'val' is Inf, return Inf */
-        e = 0x1f;
-        return (s << 15) + (e << 10) + m;
-    }
-
-    if (!(flt_e | flt_m)) {
-        /* 'val' is zero, return zero */
-        e = 0;
-        return (s << 15) + (e << 10) + m;
-    }
-
-    m = flt_m >> 9 | ((flt_m & 0x1ff) != 0);
-    if ( ! (flt_e | m) ) {
-        /* 'val' is denorm, return zero */
-        e = 0;
-        return (s << 15) + (e << 10) + m;
-    }
-
-    return _mesa_roundtozero_f16(s, flt_e - 0x71, m | 0x4000);
-}
-
-/**
- * Convert a 8-byte double to a 4-byte float.
- *
- * Not all float64 values can be represented exactly as a float32 value. We
- * round such intermediate float64 values to the nearest float32. When the
- * float64 lies exactly between two float32 values, we round to the one with
- * an even mantissa.
- */
-
-float
-_mesa_double_to_float(double val)
-{
-   const di_type fi = {val};
-   const int64_t flt_m = fi.i & 0x0fffffffffffff;
-   const int64_t flt_e = (fi.i >> 52) & 0x7ff;
-   const int64_t flt_s = (fi.i >> 63) & 0x1;
-   int s, e, m = 0;
-   float result;
-
-   /* sign bit */
-   s = flt_s;
-
-   /* handle special cases */
-   if ((flt_e == 0) && (flt_m == 0)) {
-      /* zero */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0) && (flt_m != 0)) {
-      /* denorm -- denorm float64 maps to 0 */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0x7ff) && (flt_m == 0)) {
-      /* infinity */
-      /* m = 0; - already set */
-      e = 255;
-   }
-   else if ((flt_e == 0x7ff) && (flt_m != 0)) {
-      /* NaN */
-      m = 1;
-      e = 255;
-   }
-   else {
-      /* regular number */
-      const int new_exp = flt_e - 1023;
-      if (new_exp < -126) {
-         /* The float64 lies in the range (0.0, min_normal32) and is rounded
-          * to a nearby float32 value. The result will be either zero, subnormal,
-          * or normal.
-          */
-         e = 0;
-         m = _mesa_lroundeven(((double)((uint64_t)1 << 54)) * fabs(fi.f));
-      }
-      else if (new_exp > 127) {
-         /* map this value to infinity */
-         /* m = 0; - already set */
-         e = 255;
-      }
-      else {
-         /* The float64 lies in the range
-          *   [min_normal32, max_normal32 + max_step32)
-          * and is rounded to a nearby float32 value. The result will be
-          * either normal or infinite.
-          */
-         e = new_exp + 127;
-         m = _mesa_lroundeven((double)flt_m / (double) (1 << 29));
-      }
-   }
-
-   /* assert(0 <= m && m <= (1 << 23)); */
-   if (m == (1 << 23)) {
-      /* The float64 was rounded upwards into the range of the next exponent,
-       * so bump the exponent. This correctly handles the case where f64
-       * should be rounded up to float32 infinity.
-       */
-      ++e;
-      m = 0;
-   }
-
-   unsigned result_int = (s << 31) | (e << 23) | m;
-   memcpy(&result, &result_int, sizeof(float));
-   return result;
-}
-
-float
-_mesa_double_to_float_rtz(double val)
-{
-   const di_type fi = {val};
-   const int64_t flt_m = fi.i & 0x0fffffffffffff;
-   const int64_t flt_e = (fi.i >> 52) & 0x7ff;
-   const int64_t flt_s = (fi.i >> 63) & 0x1;
-   int s, e, m = 0;
-   float result;
-
-   /* sign bit */
-   s = flt_s;
-
-   /* handle special cases */
-   if ((flt_e == 0) && (flt_m == 0)) {
-      /* zero */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0) && (flt_m != 0)) {
-      /* denorm -- denorm float64 maps to 0 */
-      /* m = 0; - already set */
-      e = 0;
-   }
-   else if ((flt_e == 0x7ff) && (flt_m == 0)) {
-      /* infinity */
-      /* m = 0; - already set */
-      e = 255;
-   }
-   else if ((flt_e == 0x7ff) && (flt_m != 0)) {
-      /* NaN */
-      m = 1;
-      e = 255;
-   }
-   else {
-      /* regular number */
-      const int new_exp = flt_e - 1023;
-      if (new_exp < -126) {
-         /* The float64 lies in the range (0.0, min_normal32) and is rounded
-          * to a nearby float32 value. The result will be either zero, subnormal,
-          * or normal.
-          */
-         e = 0;
-         m = _mesa_lroundtozero((double)((uint64_t)1 << 54) * fabs(fi.f));
-      }
-      else if (new_exp > 127) {
-         /* map this value to infinity */
-         /* m = 0; - already set */
-         e = 255;
-      }
-      else {
-         /* The float64 lies in the range
-          *   [min_normal32, max_normal32 + max_step32)
-          * and is rounded to a nearby float32 value. The result will be
-          * either normal or infinite.
-          */
-         e = new_exp + 127;
-         m = _mesa_lroundtozero((double)flt_m / (double) (1 << 29));
-      }
-   }
-
-   /* assert(0 <= m && m <= (1 << 23)); */
-   if (m == (1 << 23)) {
-      /* The float64 was rounded upwards into the range of the next exponent,
-       * so bump the exponent. This correctly handles the case where f64
-       * should be rounded up to float32 infinity.
-       */
-      ++e;
-      m = 0;
-   }
-
-   unsigned result_int = (s << 31) | (e << 23) | m;
-   memcpy(&result, &result_int, sizeof(float));
-   return result;
-}
-
 
 /**
  * \brief Shifts 'a' right by the number of bits given in 'dist', which must be in
@@ -679,7 +337,7 @@ float _mesa_round_f32(int32_t s, int32_t e, int32_t m, bool rtz)
 /**
  * \brief Extracted from softfloat_roundPackToF16()
  */
-/* static inline */
+static inline
 uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m)
 {
     if ((uint16_t) e >= 0x1d) {
@@ -910,8 +568,6 @@ _mesa_shift_right_jam_m(uint8_t size_words, const uint32_t *a, uint32_t dist, ui
     if (word_jam)
         m_out[index_word_lo(size_words)] |= 1;
 }
-
-double _mesa_double_sub_rtz(double a, double b);
 
 /**
  * \brief Calculate a + b but rounding to zero.
@@ -1850,47 +1506,13 @@ _mesa_float_fma_rtz(float a, float b, float c)
     return _mesa_round_f32(s, e, m, true);
 }
 
-/**
- * \brief Rounds \c x to zero, and returns the value as a long int.
- */
-long
-_mesa_lroundtozerof(float x)
-{
-    return _mesa_lroundtozero((double) x);
-}
 
 /**
- * \brief Rounds \c x to zero, and returns the value as a long int.
+ * \brief Converts from 64bits to 32bits float and rounds according to
+ * instructed.
  *
- * From f64_to_i64_r_minMag()
+ * From f64_to_f32()
  */
-long
-_mesa_lroundtozero(double x)
-{
-    const di_type x_di = {x};
-    uint64_t m = x_di.u & 0x0fffffffffffff;
-    uint64_t e = (x_di.u >> 52) & 0x7ff;
-    uint64_t s = (x_di.u >> 63) & 0x1;
-    int shift_dist = 0x433 - e;
-    int64_t abs_out;
-
-    if (shift_dist <= 0) {
-        if (shift_dist < -10) {
-            /* NaN or overflow, return NaN */
-            return -((int64_t) 0x7FFFFFFFFFFFFFFF) - 1;
-        }
-        m |= 0x0010000000000000;
-        abs_out = m << -shift_dist;
-    } else {
-        if (shift_dist >= 53)
-            return 0;
-
-        m |= 0x0010000000000000;
-        abs_out = m >> shift_dist;
-    }
-    return s ? -abs_out : abs_out;
-}
-
 float
 _mesa_double_to_f32(double val, bool rtz)
 {
@@ -1939,57 +1561,50 @@ _mesa_double_to_f32(double val, bool rtz)
     return _mesa_round_f32(s, flt_e - 0x381, m | 0x40000000, rtz);
 }
 
+
 /**
- * Convert a 2-byte half float to a 4-byte float.
- * Based on code from:
- * http://www.opengl.org/discussion_boards/ubb/Forum3/HTML/008786.html
+ * \brief Converts from 32bits to 16bits float and rounds the result to zero.
+ *
+ * From f32_to_f16()
  */
-float
-_mesa_half_to_float(uint16_t val)
+uint16_t
+_mesa_float_to_half_rtz(float val)
 {
-   /* XXX could also use a 64K-entry lookup table */
-   const int m = val & 0x3ff;
-   const int e = (val >> 10) & 0x1f;
-   const int s = (val >> 15) & 0x1;
-   int flt_m, flt_e, flt_s;
-   fi_type fi;
-   float result;
+    const fi_type fi = {val};
+    const uint32_t flt_m = fi.u & 0x7fffff;
+    const uint32_t flt_e = (fi.u >> 23) & 0xff;
+    const uint32_t flt_s = (fi.u >> 31) & 0x1;
+    int16_t s, e, m = 0;
 
-   /* sign bit */
-   flt_s = s;
+    s = flt_s;
 
-   /* handle special cases */
-   if ((e == 0) && (m == 0)) {
-      /* zero */
-      flt_m = 0;
-      flt_e = 0;
-   }
-   else if ((e == 0) && (m != 0)) {
-      /* denorm -- denorm half will fit in non-denorm single */
-      const float half_denorm = 1.0f / 16384.0f; /* 2^-14 */
-      float mantissa = ((float) (m)) / 1024.0f;
-      float sign = s ? -1.0f : 1.0f;
-      return sign * mantissa * half_denorm;
-   }
-   else if ((e == 31) && (m == 0)) {
-      /* infinity */
-      flt_e = 0xff;
-      flt_m = 0;
-   }
-   else if ((e == 31) && (m != 0)) {
-      /* NaN */
-      flt_e = 0xff;
-      flt_m = 1;
-   }
-   else {
-      /* regular */
-      flt_e = e + 112;
-      flt_m = m << 13;
-   }
+    if (flt_e == 0xff) {
+        if (flt_m != 0) {
+            /* 'val' is a NaN, return NaN */
+            e = 0x1f;
+            m = 0x1;
+            return (s << 15) + (e << 10) + m;
+        }
 
-   fi.i = (flt_s << 31) | (flt_e << 23) | flt_m;
-   result = fi.f;
-   return result;
+        /* 'val' is Inf, return Inf */
+        e = 0x1f;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    if (!(flt_e | flt_m)) {
+        /* 'val' is zero, return zero */
+        e = 0;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    m = flt_m >> 9 | ((flt_m & 0x1ff) != 0);
+    if ( ! (flt_e | m) ) {
+        /* 'val' is denorm, return zero */
+        e = 0;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    return _mesa_roundtozero_f16(s, flt_e - 0x71, m | 0x4000);
 }
 
 
@@ -2118,7 +1733,8 @@ float16_t subj_f32_to_f16( float32_t a )
 
     uA.f32 = a;
     /* uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_float16_rtz(uA.f) : _mesa_float_to_half(uA.f); */
-    uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_half_rtz(uA.f) : _mesa_float_to_half(uA.f);
+    /* uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_half_rtz(uA.f) : _mesa_float_to_half(uA.f); */
+    uZ.h = _mesa_float_to_half_rtz(uA.f);
     return uZ.f16;
 
 }
