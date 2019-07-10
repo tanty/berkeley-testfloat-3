@@ -6,6 +6,9 @@
 
 #ifdef FLOAT16
 
+#define SUBJ_F16_ADD
+#define SUBJ_F16_SUB
+#define SUBJ_F16_MUL
 #define SUBJ_F16_MULADD
 
 #endif
@@ -13,6 +16,9 @@
 #ifdef __STDC_VERSION__
 #if 199901L <= __STDC_VERSION__
 #define SUBJ_F32_TO_F16
+#define SUBJ_F32_ADD
+#define SUBJ_F32_SUB
+#define SUBJ_F32_MUL
 #define SUBJ_F32_MULADD
 #endif
 #endif

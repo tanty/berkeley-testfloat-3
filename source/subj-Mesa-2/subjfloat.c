@@ -152,6 +152,7 @@ const uint8_t count_leading_zeros8[256] = {
 
 long _mesa_lroundtozero(double x);
 long _mesa_lroundtozerof(float x);
+uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m);
 
 /**
  * \brief Rounds \c x to the nearest integer, with ties to the even integer,
@@ -361,6 +362,46 @@ _mesa_float_to_float16_rtz(float val)
    return result;
 }
 
+uint16_t
+_mesa_float_to_half_rtz(float val)
+{
+    const fi_type fi = {val};
+    const uint32_t flt_m = fi.u & 0x7fffff;
+    const uint32_t flt_e = (fi.u >> 23) & 0xff;
+    const uint32_t flt_s = (fi.u >> 31) & 0x1;
+    int16_t s, e, m = 0;
+
+    s = flt_s;
+
+    if (flt_e == 0xff) {
+        if (flt_m != 0) {
+            /* 'val' is a NaN, return NaN */
+            e = 0x1f;
+            m = 0x1;
+            return (s << 15) + (e << 10) + m;
+        }
+
+        /* 'val' is Inf, return Inf */
+        e = 0x1f;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    if (!(flt_e | flt_m)) {
+        /* 'val' is zero, return zero */
+        e = 0;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    m = flt_m >> 9 | ((flt_m & 0x1ff) != 0);
+    if ( ! (flt_e | m) ) {
+        /* 'val' is denorm, return zero */
+        e = 0;
+        return (s << 15) + (e << 10) + m;
+    }
+
+    return _mesa_roundtozero_f16(s, flt_e - 0x71, m | 0x4000);
+}
+
 /**
  * Convert a 8-byte double to a 4-byte float.
  *
@@ -522,6 +563,7 @@ _mesa_double_to_float_rtz(double val)
    return result;
 }
 
+
 /**
  * \brief Shifts 'a' right by the number of bits given in 'dist', which must be in
  * the range 1 to 63.  If any nonzero bits are shifted off, they are "jammed"
@@ -605,24 +647,28 @@ double _mesa_roundtozero_f64(int64_t s, int64_t e, int64_t m)
  * \brief Extracted from softfloat_roundPackToF32()
  */
 static inline
-float _mesa_roundtozero_f32(int32_t s, int32_t e, int32_t m)
+float _mesa_round_f32(int32_t s, int32_t e, int32_t m, bool rtz)
 {
     fi_type result;
+    uint8_t round_increment = rtz ? 0 : 0x40;
 
     if ((uint32_t) e >= 0xfd) {
         if (e < 0) {
             m = _mesa_shift_right_jam32(m, -e);
             e = 0;
-        } else if ((e > 0xfd) || (0x80000000 <= m)) {
+        } else if ((e > 0xfd) || (0x80000000 <= m + round_increment)) {
             e = 0xff;
             m = 0;
             result.u = (s << 31) + (e << 23) + m;
-            result.u -= 1;
+            result.u -= !round_increment;
             return result.f;
         }
     }
 
-    m >>= 7;
+    uint8_t round_bits;
+    round_bits = m & 0x7f;
+    m = ((uint32_t) m + round_increment) >> 7;
+    m &= ~(uint32_t) (! (round_bits ^ 0x40) & !rtz);
     if (m == 0)
         e = 0;
 
@@ -633,11 +679,9 @@ float _mesa_roundtozero_f32(int32_t s, int32_t e, int32_t m)
 /**
  * \brief Extracted from softfloat_roundPackToF16()
  */
-static inline
+/* static inline */
 uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m)
 {
-    uint16_t result;
-
     if ((uint16_t) e >= 0x1d) {
         if (e < 0) {
             m = _mesa_shift_right_jam32(m, -e);
@@ -645,18 +689,15 @@ uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m)
         } else if ((e > 0x1d) || (0x8000 <= m)) {
             e = 0x1f;
             m = 0;
-            result.u = (s << 15) + (e << 10) + m;
-            result.u -= 1;
-            return result.f;
+            return (s << 15) + (e << 10) + m - 1;
         }
     }
 
-    m >>= 7;
+    m >>= 4;
     if (m == 0)
         e = 0;
 
-    result.u = (s << 15) + (e << 10) + m;
-    return result.f;
+    return (s << 15) + (e << 10) + m;
 }
 
 /**
@@ -1756,7 +1797,7 @@ _mesa_float_fma_rtz(float a, float b, float c)
         if (c_flt_m == 0) {
             /* 'c' is zero, return 'a * b' */
             m = _mesa_short_shift_right_jam64(m_64, 31);
-            return _mesa_roundtozero_f32(s, e - 1, m);
+            return _mesa_round_f32(s, e - 1, m, true);
         }
         _mesa_norm_subnormal_mantissa_f32(c_flt_m , &c_flt_e, &c_flt_m);
     }
@@ -1806,7 +1847,7 @@ _mesa_float_fma_rtz(float a, float b, float c)
         }
     }
 
-    return _mesa_roundtozero_f32(s, e, m);
+    return _mesa_round_f32(s, e, m, true);
 }
 
 /**
@@ -1848,6 +1889,107 @@ _mesa_lroundtozero(double x)
         abs_out = m >> shift_dist;
     }
     return s ? -abs_out : abs_out;
+}
+
+float
+_mesa_double_to_f32(double val, bool rtz)
+{
+    const di_type di = {val};
+    uint64_t flt_m = di.u & 0x0fffffffffffff;
+    uint64_t flt_e = (di.u >> 52) & 0x7ff;
+    uint64_t flt_s = (di.u >> 63) & 0x1;
+    int32_t s, e, m = 0;
+
+    s = flt_s;
+
+    if (flt_e == 0x7ff) {
+        if (flt_m != 0) {
+            /* 'val' is a NaN, return NaN */
+            fi_type result;
+            e = 0xff;
+            m = 0x1;
+            result.u = (s << 31) + (e << 23) + m;
+            return result.f;
+        }
+
+        /* 'val' is Inf, return Inf */
+        fi_type result;
+        e = 0xff;
+        result.u = (s << 31) + (e << 23) + m;
+        return result.f;
+    }
+
+    if (!(flt_e | flt_m)) {
+        /* 'val' is zero, return zero */
+        fi_type result;
+        e = 0;
+        result.u = (s << 31) + (e << 23) + m;
+        return result.f;
+    }
+
+    m = _mesa_short_shift_right_jam64(flt_m, 22);
+    if ( ! (flt_e | m) ) {
+        /* 'val' is denorm, return zero */
+        fi_type result;
+        e = 0;
+        result.u = (s << 31) + (e << 23) + m;
+        return result.f;
+    }
+
+    return _mesa_round_f32(s, flt_e - 0x381, m | 0x40000000, rtz);
+}
+
+/**
+ * Convert a 2-byte half float to a 4-byte float.
+ * Based on code from:
+ * http://www.opengl.org/discussion_boards/ubb/Forum3/HTML/008786.html
+ */
+float
+_mesa_half_to_float(uint16_t val)
+{
+   /* XXX could also use a 64K-entry lookup table */
+   const int m = val & 0x3ff;
+   const int e = (val >> 10) & 0x1f;
+   const int s = (val >> 15) & 0x1;
+   int flt_m, flt_e, flt_s;
+   fi_type fi;
+   float result;
+
+   /* sign bit */
+   flt_s = s;
+
+   /* handle special cases */
+   if ((e == 0) && (m == 0)) {
+      /* zero */
+      flt_m = 0;
+      flt_e = 0;
+   }
+   else if ((e == 0) && (m != 0)) {
+      /* denorm -- denorm half will fit in non-denorm single */
+      const float half_denorm = 1.0f / 16384.0f; /* 2^-14 */
+      float mantissa = ((float) (m)) / 1024.0f;
+      float sign = s ? -1.0f : 1.0f;
+      return sign * mantissa * half_denorm;
+   }
+   else if ((e == 31) && (m == 0)) {
+      /* infinity */
+      flt_e = 0xff;
+      flt_m = 0;
+   }
+   else if ((e == 31) && (m != 0)) {
+      /* NaN */
+      flt_e = 0xff;
+      flt_m = 1;
+   }
+   else {
+      /* regular */
+      flt_e = e + 112;
+      flt_m = m << 13;
+   }
+
+   fi.i = (flt_s << 31) | (flt_e << 23) | flt_m;
+   result = fi.f;
+   return result;
 }
 
 
@@ -1914,6 +2056,39 @@ uint_fast8_t subjfloat_clearExceptionFlags( void )
 
 union f16_h { float16_t f16; uint16_t h; };
 
+float16_t subj_f16_add( float16_t a, float16_t b )
+{
+    union f16_h uA, uB, uZ;
+
+    uA.f16 = a;
+    uB.f16 = b;
+    uZ.h = _mesa_float_to_half_rtz(_mesa_double_add_rtz(_mesa_half_to_float(uA.h), _mesa_half_to_float(uB.h)));
+    return uZ.f16;
+
+}
+
+float16_t subj_f16_sub( float16_t a, float16_t b )
+{
+    union f16_h uA, uB, uZ;
+
+    uA.f16 = a;
+    uB.f16 = b;
+    uZ.h = _mesa_float_to_half_rtz(_mesa_double_sub_rtz(_mesa_half_to_float(uA.h), _mesa_half_to_float(uB.h)));
+    return uZ.f16;
+
+}
+
+float16_t subj_f16_mul( float16_t a, float16_t b )
+{
+    union f16_h uA, uB, uZ;
+
+    uA.f16 = a;
+    uB.f16 = b;
+    uZ.h = _mesa_float_to_half_rtz(_mesa_double_mul_rtz(_mesa_half_to_float(uA.h), _mesa_half_to_float(uB.h)));
+    return uZ.f16;
+
+}
+
 float16_t subj_f16_mulAdd( float16_t a, float16_t b, float16_t c )
 {
     union f16_h uA, uB, uC, uZ;
@@ -1921,8 +2096,8 @@ float16_t subj_f16_mulAdd( float16_t a, float16_t b, float16_t c )
     uA.f16 = a;
     uB.f16 = b;
     uC.f16 = c;
-    /* uZ.h = _mesa_float_to_float16_rtz(_mesa_float_fma_rtz(uA.h, uB.h, uC.h)); */
-    uZ.h = _mesa_double_to_float_rtz(_mesa_double_fma_rtz(uA.h, uB.h, uC.h));
+    uZ.h = _mesa_float_to_half_rtz(_mesa_float_fma_rtz(_mesa_half_to_float(uA.h), _mesa_half_to_float(uB.h), _mesa_half_to_float(uC.h)));
+    /* uZ.h = _mesa_float_to_half_rtz(_mesa_double_fma_rtz(_mesa_half_to_float(uA.h), _mesa_half_to_float(uB.h), _mesa_half_to_float(uC.h))); */
     return uZ.f16;
 }
 
@@ -1942,8 +2117,42 @@ float16_t subj_f32_to_f16( float32_t a )
     union f16_h uZ;
 
     uA.f32 = a;
-    uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_float16_rtz(uA.f) : _mesa_float_to_half(uA.f);
+    /* uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_float16_rtz(uA.f) : _mesa_float_to_half(uA.f); */
+    uZ.h = the_roundingMode == softfloat_round_minMag ? _mesa_float_to_half_rtz(uA.f) : _mesa_float_to_half(uA.f);
     return uZ.f16;
+
+}
+
+float32_t subj_f32_add( float32_t a, float32_t b )
+{
+    union f32_f uA, uB, uZ;
+
+    uA.f32 = a;
+    uB.f32 = b;
+    uZ.f = _mesa_double_add_rtz(uA.f, uB.f);
+    return uZ.f32;
+
+}
+
+float32_t subj_f32_sub( float32_t a, float32_t b )
+{
+    union f32_f uA, uB, uZ;
+
+    uA.f32 = a;
+    uB.f32 = b;
+    uZ.f = _mesa_double_sub_rtz(uA.f, uB.f);
+    return uZ.f32;
+
+}
+
+float32_t subj_f32_mul( float32_t a, float32_t b )
+{
+    union f32_f uA, uB, uZ;
+
+    uA.f32 = a;
+    uB.f32 = b;
+    uZ.f = _mesa_double_mul_rtz(uA.f, uB.f);
+    return uZ.f32;
 
 }
 
@@ -1976,7 +2185,8 @@ float32_t subj_f64_to_f32( float64_t a )
     union f32_f uZ;
 
     uA.f64 = a;
-    uZ.f = the_roundingMode == softfloat_round_minMag ? _mesa_double_to_float_rtz(uA.d) : _mesa_double_to_float(uA.d);
+    /* uZ.f = the_roundingMode == softfloat_round_minMag ? _mesa_double_to_float_rtz(uA.d) : _mesa_double_to_float(uA.d); */
+    uZ.f = _mesa_double_to_f32(uA.d, the_roundingMode == softfloat_round_minMag);
     return uZ.f32;
 
 }
