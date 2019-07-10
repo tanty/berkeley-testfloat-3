@@ -88,7 +88,7 @@ INLINE bool f16_isZero( float16_t a )
 {
     union { uint16_t ui; float16_t f; } uA;
     uA.f = a;
-    return (( uA.ui == 0x80000 ) || ( uA.ui == 0x00000 ));
+    return (( uA.ui == 0x8000 ) || ( uA.ui == 0x00000 ));
 }
 
 #endif
