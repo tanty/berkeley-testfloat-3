@@ -631,6 +631,35 @@ float _mesa_roundtozero_f32(int32_t s, int32_t e, int32_t m)
 }
 
 /**
+ * \brief Extracted from softfloat_roundPackToF16()
+ */
+static inline
+uint16_t _mesa_roundtozero_f16(int16_t s, int16_t e, int16_t m)
+{
+    uint16_t result;
+
+    if ((uint16_t) e >= 0x1d) {
+        if (e < 0) {
+            m = _mesa_shift_right_jam32(m, -e);
+            e = 0;
+        } else if ((e > 0x1d) || (0x8000 <= m)) {
+            e = 0x1f;
+            m = 0;
+            result.u = (s << 15) + (e << 10) + m;
+            result.u -= 1;
+            return result.f;
+        }
+    }
+
+    m >>= 7;
+    if (m == 0)
+        e = 0;
+
+    result.u = (s << 15) + (e << 10) + m;
+    return result.f;
+}
+
+/**
  * \brief Shifts the N-bit unsigned integer pointed to by 'a' left by the number of
  * bits given in 'dist', where N = 'size_words' * 32.  The value of 'dist'
  * must be in the range 1 to 31.  Any nonzero bits shifted off are lost.  The
