@@ -580,7 +580,7 @@ double _mesa_roundtozero_f64(int64_t s, int64_t e, int64_t m)
 {
     di_type result;
 
-    if ((uint64_t)e >= 0x7fd) {
+    if ((uint64_t) e >= 0x7fd) {
         if (e < 0) {
             m = _mesa_shift_right_jam64(m, -e);
             e = 0;
@@ -609,7 +609,7 @@ float _mesa_roundtozero_f32(int32_t s, int32_t e, int32_t m)
 {
     fi_type result;
 
-    if ((uint32_t)e >= 0xfd) {
+    if ((uint32_t) e >= 0xfd) {
         if (e < 0) {
             m = _mesa_shift_right_jam32(m, -e);
             e = 0;
